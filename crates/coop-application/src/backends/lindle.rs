@@ -1,14 +1,13 @@
-//! Lindle Orleans — one entity of the generic backend family.
-//!
-//! Env (minimum): `AGENTS_SERVICE_URL` + `AGENTS_INTERNAL_SECRET`.
+//! Lindle Orleans — specializes generic [`AgentBackendConfig`] as [`AgentBackendKind::AgentsHttp`].
 
 use crate::backend::{AgentBackendConfig, AgentBackendKind, AuthStyle};
 use anyhow::{bail, Result};
 
-pub struct LindleBackend;
+/// Factory: Lindle Orleans Agents → generic HTTP agent backend config.
+pub struct LindleOrleansBackend;
 
-impl LindleBackend {
-    /// If `AGENTS_SERVICE_URL` is set, build a required Lindle backend (secret mandatory).
+impl LindleOrleansBackend {
+    /// If `AGENTS_SERVICE_URL` is set, build a required AgentsHttp backend.
     pub fn from_env() -> Result<Option<AgentBackendConfig>> {
         let Ok(base_url) = std::env::var("AGENTS_SERVICE_URL") else {
             return Ok(None);
@@ -27,16 +26,22 @@ impl LindleBackend {
 
         Ok(Some(AgentBackendConfig {
             id: "lindle-orleans".into(),
-            kind: AgentBackendKind::Lindle,
+            kind: AgentBackendKind::AgentsHttp,
             base_url,
             auth_secret,
             auth_style: AuthStyle::BearerAndLindleHeader,
             health_path: "/health".into(),
             default_tenant_id: "demo-tenant".into(),
-            // negotiate / investigate — supplier.read prefers MCP when configured
-            skills: vec!["negotiate".into(), "investigate".into(), "supplier.read".into()],
+            skills: vec![
+                "negotiate".into(),
+                "investigate".into(),
+                "supplier.read".into(),
+            ],
             priority: 10,
             required: true,
         }))
     }
 }
+
+/// Backward-compatible alias.
+pub type LindleBackend = LindleOrleansBackend;

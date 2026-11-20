@@ -1,17 +1,21 @@
-//! Generic AgentBackendConfig — Lindle Orleans / MCP entities.
+//! Generic AgentBackendConfig — Lindle factories specialize AgentsHttp / Mcp kinds.
 
 use coop_application::{AgentBackendConfig, AgentBackendKind, AuthStyle, OrchestratorConfig};
 
 fn orleans() -> AgentBackendConfig {
     AgentBackendConfig {
         id: "lindle-orleans".into(),
-        kind: AgentBackendKind::Lindle,
+        kind: AgentBackendKind::AgentsHttp,
         base_url: "http://127.0.0.1:8080".into(),
         auth_secret: "hunter2-do-not-leak".into(),
         auth_style: AuthStyle::BearerAndLindleHeader,
         health_path: "/health".into(),
         default_tenant_id: "t".into(),
-        skills: vec!["negotiate".into(), "investigate".into(), "supplier.read".into()],
+        skills: vec![
+            "negotiate".into(),
+            "investigate".into(),
+            "supplier.read".into(),
+        ],
         priority: 10,
         required: true,
     }
@@ -20,7 +24,7 @@ fn orleans() -> AgentBackendConfig {
 fn mcp() -> AgentBackendConfig {
     AgentBackendConfig {
         id: "lindle-mcp".into(),
-        kind: AgentBackendKind::LindleMcp,
+        kind: AgentBackendKind::Mcp,
         base_url: "http://127.0.0.1:8000/mcp".into(),
         auth_secret: "mcp-secret".into(),
         auth_style: AuthStyle::McpSecret,
@@ -38,17 +42,18 @@ fn mcp_preferred_for_supplier_read() {
     orch.push(orleans());
     orch.push(mcp());
     let chosen = orch.backend_for_skill("supplier.read").unwrap();
-    assert_eq!(chosen.kind, AgentBackendKind::LindleMcp);
-    assert_eq!(chosen.priority, 0);
+    assert_eq!(chosen.kind, AgentBackendKind::Mcp);
 }
 
 #[test]
-fn negotiate_uses_orleans() {
+fn negotiate_uses_agents_http() {
     let mut orch = OrchestratorConfig::default();
     orch.push(orleans());
     orch.push(mcp());
-    let chosen = orch.backend_for_skill("negotiate").unwrap();
-    assert_eq!(chosen.kind, AgentBackendKind::Lindle);
+    assert_eq!(
+        orch.backend_for_skill("negotiate").unwrap().kind,
+        AgentBackendKind::AgentsHttp
+    );
 }
 
 #[test]

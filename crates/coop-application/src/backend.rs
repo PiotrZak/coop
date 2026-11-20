@@ -1,15 +1,18 @@
 //! Generic agent-backend config — base type all concrete backends specialize.
+//!
+//! There is no class inheritance: factories (e.g. Lindle Orleans / Lindle MCP)
+//! fill this shared shape; runtime adapters implement a dispatch trait in `coop-a2a`.
 
 use serde::{Deserialize, Serialize};
 
-/// Kind of agent backend (extensible).
+/// Protocol family (extensible). Product-specific factories pick a kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentBackendKind {
-    /// Lindle Orleans Agents (`POST /agents/*`).
-    Lindle,
-    /// Lindle Backend MCP (`/mcp` tools/call).
-    LindleMcp,
+    /// JSON HTTP agent API (Lindle Orleans is one provider).
+    AgentsHttp,
+    /// MCP `tools/call` (Lindle Backend `/mcp` is one provider).
+    Mcp,
 }
 
 /// How the shared secret is presented on the wire.
@@ -19,13 +22,11 @@ pub enum AuthStyle {
     Bearer,
     /// Bearer + `X-Lindle-Agents-Secret` (Lindle Host).
     BearerAndLindleHeader,
-    /// Bearer or `X-MCP-Secret` for Lindle `/mcp`.
+    /// Bearer or `X-MCP-Secret` for MCP hosts.
     McpSecret,
 }
 
 /// Generic base config for **any** agent backend.
-///
-/// Concrete backends (Lindle, …) are factories that fill this type.
 #[derive(Clone)]
 pub struct AgentBackendConfig {
     pub id: String,

@@ -1,62 +1,43 @@
-//! HTTP boot helpers for the Coop orchestrator.
+//! Boot helpers: connect generic backends into a [`BackendRegistry`].
 
+use crate::agent_backend::{AgentBackend, BackendRegistry};
 use crate::card::{AgentCard, Skill};
-use crate::lindle::LindleAgentsClient;
+use crate::lindle::LindleOrleansClient;
 use crate::mcp::LindleMcpClient;
 use anyhow::{bail, Result};
 use coop_application::{AgentBackendConfig, AgentBackendKind, OrchestratorConfig};
 use coop_domain::Scope;
+use std::sync::Arc;
 
-pub struct ConnectedBackends {
-    pub orleans: Option<LindleAgentsClient>,
-    pub mcp: Option<LindleMcpClient>,
-}
+/// Build runtime adapters from config and connect (required must succeed).
+pub async fn connect_backends(orch: &OrchestratorConfig) -> Result<BackendRegistry> {
+    let mut connected: Vec<Arc<dyn AgentBackend>> = Vec::new();
 
-/// Connect required Orleans first; MCP is optional.
-pub async fn connect_backends(orch: &OrchestratorConfig) -> Result<ConnectedBackends> {
-    let mut orleans = None;
-    let mut mcp = None;
+    for cfg in &orch.backends {
+        let backend: Arc<dyn AgentBackend> = match cfg.kind {
+            AgentBackendKind::AgentsHttp => Arc::new(LindleOrleansClient::new(cfg.clone())),
+            AgentBackendKind::Mcp => Arc::new(LindleMcpClient::new(cfg.clone())),
+        };
 
-    for cfg in orch.required() {
-        match cfg.kind {
-            AgentBackendKind::Lindle => {
-                let client = LindleAgentsClient::new(cfg.clone());
-                client
-                    .ensure_ready()
-                    .await
-                    .map_err(|e| anyhow::anyhow!("required backend `{}` failed: {e}", cfg.id))?;
-                orleans = Some(client);
+        match backend.ensure_ready().await {
+            Ok(()) => connected.push(backend),
+            Err(e) if cfg.required => {
+                return Err(anyhow::anyhow!(
+                    "required backend `{}` failed: {e}",
+                    cfg.id
+                ));
             }
-            AgentBackendKind::LindleMcp => {
-                bail!("MCP backend should not be marked required");
+            Err(e) => {
+                tracing::warn!(id = %cfg.id, error = %e, "optional backend down");
             }
         }
     }
 
-    if orleans.is_none() {
-        if let Some(cfg) = orch.of_kind(AgentBackendKind::Lindle) {
-            let client = LindleAgentsClient::new(cfg.clone());
-            client
-                .ensure_ready()
-                .await
-                .map_err(|e| anyhow::anyhow!("Orleans backend `{}` failed: {e}", cfg.id))?;
-            orleans = Some(client);
-        }
+    if connected.is_empty() {
+        bail!("no agent backends connected — set AGENTS_SERVICE_URL and/or LINDLE_MCP_URL");
     }
 
-    if let Some(cfg) = orch.of_kind(AgentBackendKind::LindleMcp) {
-        let client = LindleMcpClient::new(cfg.clone());
-        match client.ensure_ready().await {
-            Ok(()) => mcp = Some(client),
-            Err(e) => tracing::warn!(id = %cfg.id, error = %e, "optional MCP backend down"),
-        }
-    }
-
-    if orleans.is_none() && mcp.is_none() {
-        bail!("no Lindle backends connected — set AGENTS_SERVICE_URL and/or LINDLE_MCP_URL");
-    }
-
-    Ok(ConnectedBackends { orleans, mcp })
+    Ok(BackendRegistry::new(connected))
 }
 
 pub fn build_card(public_url: &str, orch: &OrchestratorConfig) -> AgentCard {
@@ -66,7 +47,8 @@ pub fn build_card(public_url: &str, orch: &OrchestratorConfig) -> AgentCard {
     }
     let mut card = AgentCard::gateway(public_url, skills);
     card.description =
-        "Coop A2A edge — foreign agents → Lindle Orleans / MCP (identity + trust score)".into();
+        "Coop A2A edge — foreign agents → generic AgentBackend adapters (Lindle Orleans / MCP)"
+            .into();
     card
 }
 

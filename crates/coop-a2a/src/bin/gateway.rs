@@ -1,10 +1,8 @@
-//! Coop orchestrator — A2A edge for foreign agents → Lindle Orleans / MCP.
+//! Coop orchestrator — A2A edge over generic [`AgentBackend`] adapters.
 //!
 //! Env:
-//! - Orleans: `AGENTS_SERVICE_URL`, `AGENTS_INTERNAL_SECRET`
+//! - Orleans (AgentsHttp): `AGENTS_SERVICE_URL`, `AGENTS_INTERNAL_SECRET`
 //! - MCP (optional): `LINDLE_MCP_URL`, `MCP_SERVER_SECRET`
-//!
-//! Listen address defaults to `127.0.0.1:7090` (override with `--addr`).
 
 use anyhow::{bail, Result};
 use axum::extract::State;
@@ -13,12 +11,11 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Parser;
+use coop_a2a::agent_backend::BackendRegistry;
 use coop_a2a::card::AgentCard;
-use coop_a2a::lindle::LindleAgentsClient;
-use coop_a2a::mcp::LindleMcpClient;
 use coop_a2a::models::{auth_failure, JsonRpcRequest, JsonRpcResponse};
 use coop_a2a::orchestrator_http::{build_card, connect_backends};
-use coop_application::{AgentBackendKind, OrchestratorConfig};
+use coop_application::OrchestratorConfig;
 use coop_identity::ApiKeyDirectory;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -35,9 +32,7 @@ struct Args {
 struct AppState {
     card: AgentCard,
     auth: Arc<ApiKeyDirectory>,
-    orch: Arc<OrchestratorConfig>,
-    orleans: Option<LindleAgentsClient>,
-    mcp: Option<LindleMcpClient>,
+    backends: BackendRegistry,
 }
 
 #[tokio::main]
@@ -53,7 +48,7 @@ async fn main() -> Result<()> {
             "set AGENTS_SERVICE_URL + AGENTS_INTERNAL_SECRET and/or LINDLE_MCP_URL + MCP_SERVER_SECRET"
         );
     }
-    let connected = connect_backends(&orch).await?;
+    let backends = connect_backends(&orch).await?;
     let public_url = format!("http://{}", args.addr);
     let card = build_card(&public_url, &orch);
 
@@ -73,9 +68,7 @@ async fn main() -> Result<()> {
         .with_state(AppState {
             card,
             auth: Arc::new(ApiKeyDirectory::demo()),
-            orch: Arc::new(orch),
-            orleans: connected.orleans,
-            mcp: connected.mcp,
+            backends,
         });
 
     tracing::info!("coop orchestrator listening on http://{}", args.addr);
@@ -125,7 +118,7 @@ async fn a2a_rpc(
         "a2a message/send authorized"
     );
 
-    let Some(backend) = state.orch.backend_for_skill(&skill) else {
+    let Some(primary) = state.backends.for_skill(&skill) else {
         return (
             axum::http::StatusCode::BAD_REQUEST,
             Json(JsonRpcResponse::err(
@@ -137,21 +130,22 @@ async fn a2a_rpc(
             .into_response();
     };
 
-    let result = match backend.kind {
-        AgentBackendKind::LindleMcp => {
-            if let Some(mcp) = &state.mcp {
-                mcp.dispatch_skill(&skill, &req).await
-            } else if let Some(orleans) = &state.orleans {
-                tracing::warn!(skill = %skill, "MCP down — falling back to Orleans");
-                orleans.dispatch_skill(&skill, &req).await
+    let result = match primary.dispatch_skill(&skill, &req).await {
+        Ok(resp) => Ok(resp),
+        Err(e) => {
+            if let Some(fallback) = state.backends.fallback_for_skill(&skill, primary.id()) {
+                tracing::warn!(
+                    skill = %skill,
+                    primary = %primary.id(),
+                    fallback = %fallback.id(),
+                    error = %e,
+                    "primary backend failed — trying fallback"
+                );
+                fallback.dispatch_skill(&skill, &req).await
             } else {
-                Err(anyhow::anyhow!("MCP backend not connected for `{skill}`"))
+                Err(e)
             }
         }
-        AgentBackendKind::Lindle => match &state.orleans {
-            Some(orleans) => orleans.dispatch_skill(&skill, &req).await,
-            None => Err(anyhow::anyhow!("Orleans backend not connected for `{skill}`")),
-        },
     };
 
     match result {

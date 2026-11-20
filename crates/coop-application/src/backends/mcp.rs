@@ -1,14 +1,13 @@
-//! Lindle Backend MCP — one entity of the generic backend family.
-//!
-//! Env: `LINDLE_MCP_URL` + `MCP_SERVER_SECRET` (same as YCA → Lindle `/mcp`).
+//! Lindle MCP — specializes generic [`AgentBackendConfig`] as [`AgentBackendKind::Mcp`].
 
 use crate::backend::{AgentBackendConfig, AgentBackendKind, AuthStyle};
 use anyhow::{bail, Result};
 
+/// Factory: Lindle Backend `/mcp` → generic MCP backend config.
 pub struct LindleMcpBackend;
 
 impl LindleMcpBackend {
-    /// Optional MCP tool host. Prefer over Orleans for `supplier.read` (priority 0).
+    /// Optional MCP tool host. Prefer for `supplier.read` (priority 0).
     pub fn from_env() -> Result<Option<AgentBackendConfig>> {
         let Ok(base_url) = std::env::var("LINDLE_MCP_URL") else {
             return Ok(None);
@@ -27,7 +26,7 @@ impl LindleMcpBackend {
 
         Ok(Some(AgentBackendConfig {
             id: "lindle-mcp".into(),
-            kind: AgentBackendKind::LindleMcp,
+            kind: AgentBackendKind::Mcp,
             base_url,
             auth_secret,
             auth_style: AuthStyle::McpSecret,

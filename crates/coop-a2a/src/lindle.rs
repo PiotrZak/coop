@@ -1,78 +1,27 @@
-//! Lindle Orleans adapter — implements dispatch for [`AgentBackendKind::Lindle`].
-//!
-//! Config is the generic [`AgentBackendConfig`]; Lindle only specializes HTTP paths.
+//! Lindle Orleans — concrete [`AgentBackend`] for [`AgentBackendKind::AgentsHttp`].
 
+use crate::agent_backend::AgentBackend;
+use crate::http_base::HttpBackendBase;
 use crate::models::{
     completed_task, Artifact, JsonRpcRequest, JsonRpcResponse, Message, NegotiateParams, Part,
     SupplierLookupParams, Task,
 };
 use anyhow::{anyhow, bail, Context, Result};
-use coop_application::{AgentBackendConfig, AuthStyle};
+use coop_application::AgentBackendConfig;
 use coop_domain::Scope;
-use reqwest::Client;
 use serde_json::{json, Value};
 
+/// Lindle Orleans HTTP adapter (specializes generic AgentsHttp).
 #[derive(Clone)]
-pub struct LindleAgentsClient {
-    http: Client,
-    cfg: AgentBackendConfig,
+pub struct LindleOrleansClient {
+    base: HttpBackendBase,
 }
 
-impl LindleAgentsClient {
+impl LindleOrleansClient {
     pub fn new(cfg: AgentBackendConfig) -> Self {
         Self {
-            http: Client::new(),
-            cfg,
+            base: HttpBackendBase::new(cfg),
         }
-    }
-
-    pub fn config(&self) -> &AgentBackendConfig {
-        &self.cfg
-    }
-
-    pub async fn ensure_ready(&self) -> Result<()> {
-        let url = format!("{}{}", self.cfg.base_url, self.cfg.health_path);
-        let resp = self
-            .authed(self.http.get(&url))
-            .send()
-            .await
-            .context("backend health request")?;
-        if !resp.status().is_success() {
-            bail!(
-                "agent backend `{}` not ready at {} (health HTTP {})",
-                self.cfg.id,
-                self.cfg.base_url,
-                resp.status()
-            );
-        }
-        tracing::info!(
-            id = %self.cfg.id,
-            kind = ?self.cfg.kind,
-            url = %self.cfg.base_url,
-            "primary agent backend connected"
-        );
-        Ok(())
-    }
-
-    pub async fn dispatch_skill(
-        &self,
-        skill: &str,
-        req: &JsonRpcRequest,
-    ) -> Result<JsonRpcResponse> {
-        let message: Message =
-            serde_json::from_value(req.params.get("message").cloned().unwrap_or(Value::Null))
-                .unwrap_or(Message {
-                    role: "user".into(),
-                    parts: vec![],
-                });
-
-        let task = match Scope::from_skill(skill)? {
-            Scope::Negotiate => self.negotiate(&message).await?,
-            Scope::SupplierRead => self.supplier_read(&message).await?,
-            Scope::Investigate => self.investigate(&message).await?,
-        };
-
-        Ok(JsonRpcResponse::ok(req.id.clone(), json!(task)))
     }
 
     async fn negotiate(&self, message: &Message) -> Result<Task> {
@@ -84,7 +33,7 @@ impl LindleAgentsClient {
         });
 
         let body = json!({
-            "tenantId": self.cfg.default_tenant_id,
+            "tenantId": self.base.cfg.default_tenant_id,
             "insightId": format!("coop:{}", params.supplier_id.as_deref().unwrap_or("a2a")),
             "supplierName": params.supplier_id,
             "insightSummary": params.ask,
@@ -125,7 +74,7 @@ impl LindleAgentsClient {
         });
 
         let body = json!({
-            "tenantId": self.cfg.default_tenant_id,
+            "tenantId": self.base.cfg.default_tenant_id,
             "jobId": format!("coop-supplier:{}", params.supplier_id),
             "chooseK": 4,
             "topN": 50,
@@ -166,7 +115,7 @@ impl LindleAgentsClient {
             .unwrap_or_else(|| json!({ "summary": "coop a2a investigate" }));
 
         let body = json!({
-            "tenantId": data.get("tenantId").and_then(|v| v.as_str()).unwrap_or(&self.cfg.default_tenant_id),
+            "tenantId": data.get("tenantId").and_then(|v| v.as_str()).unwrap_or(&self.base.cfg.default_tenant_id),
             "insightId": data.get("insightId").and_then(|v| v.as_str()).unwrap_or("coop:investigate"),
             "correlationId": data.get("correlationId").cloned().unwrap_or(Value::Null),
             "ruleId": data.get("ruleId").cloned().unwrap_or(Value::Null),
@@ -195,9 +144,10 @@ impl LindleAgentsClient {
     }
 
     async fn post_json(&self, path: &str, body: &Value) -> Result<Value> {
-        let url = format!("{}{path}", self.cfg.base_url);
+        let url = format!("{}{path}", self.base.cfg.base_url);
         let resp = self
-            .authed(self.http.post(&url))
+            .base
+            .authed(self.base.http.post(&url))
             .json(body)
             .send()
             .await
@@ -212,14 +162,59 @@ impl LindleAgentsClient {
         }
         serde_json::from_str(&text).with_context(|| format!("decode {path} body"))
     }
+}
 
-    fn authed(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        let req = req.header("Authorization", format!("Bearer {}", self.cfg.auth_secret));
-        match self.cfg.auth_style {
-            AuthStyle::Bearer | AuthStyle::McpSecret => req,
-            AuthStyle::BearerAndLindleHeader => {
-                req.header("X-Lindle-Agents-Secret", &self.cfg.auth_secret)
+/// Alias kept for call sites / docs.
+pub type LindleAgentsClient = LindleOrleansClient;
+
+impl AgentBackend for LindleOrleansClient {
+    fn config(&self) -> &AgentBackendConfig {
+        self.base.config()
+    }
+
+    fn ensure_ready(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async move {
+            let resp = self.base.health_get().await.context("backend health request")?;
+            if !resp.status().is_success() {
+                bail!(
+                    "agent backend `{}` not ready at {} (health HTTP {})",
+                    self.base.cfg.id,
+                    self.base.cfg.base_url,
+                    resp.status()
+                );
             }
-        }
+            tracing::info!(
+                id = %self.base.cfg.id,
+                kind = ?self.base.cfg.kind,
+                url = %self.base.cfg.base_url,
+                "AgentsHttp backend connected"
+            );
+            Ok(())
+        })
+    }
+
+    fn dispatch_skill<'a>(
+        &'a self,
+        skill: &'a str,
+        req: &'a JsonRpcRequest,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<JsonRpcResponse>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            let message: Message =
+                serde_json::from_value(req.params.get("message").cloned().unwrap_or(Value::Null))
+                    .unwrap_or(Message {
+                        role: "user".into(),
+                        parts: vec![],
+                    });
+
+            let task = match Scope::from_skill(skill)? {
+                Scope::Negotiate => self.negotiate(&message).await?,
+                Scope::SupplierRead => self.supplier_read(&message).await?,
+                Scope::Investigate => self.investigate(&message).await?,
+            };
+
+            Ok(JsonRpcResponse::ok(req.id.clone(), json!(task)))
+        })
     }
 }

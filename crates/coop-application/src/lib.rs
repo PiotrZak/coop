@@ -5,5 +5,5 @@ pub mod backends;
 mod orchestrator;
 
 pub use backend::{AgentBackendConfig, AgentBackendKind, AuthStyle};
-pub use backends::{LindleBackend, LindleMcpBackend};
+pub use backends::{LindleBackend, LindleMcpBackend, LindleOrleansBackend};
 pub use orchestrator::OrchestratorConfig;
