@@ -1,9 +1,12 @@
-//! Coop orchestrator — A2A edge over generic [`AgentBackendConfig`] entities.
+//! Coop orchestrator — A2A edge for foreign agents → Lindle Orleans / MCP.
 //!
-//! Env (minimum for Lindle): `AGENTS_SERVICE_URL`, `AGENTS_INTERNAL_SECRET`.
+//! Env:
+//! - Orleans: `AGENTS_SERVICE_URL`, `AGENTS_INTERNAL_SECRET`
+//! - MCP (optional): `LINDLE_MCP_URL`, `MCP_SERVER_SECRET`
+//!
 //! Listen address defaults to `127.0.0.1:7090` (override with `--addr`).
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::IntoResponse;
@@ -12,10 +15,10 @@ use axum::{Json, Router};
 use clap::Parser;
 use coop_a2a::card::AgentCard;
 use coop_a2a::lindle::LindleAgentsClient;
+use coop_a2a::mcp::LindleMcpClient;
 use coop_a2a::models::{auth_failure, JsonRpcRequest, JsonRpcResponse};
 use coop_a2a::orchestrator_http::{build_card, connect_backends};
-use coop_a2a::proxy::{forward, SkillRouter};
-use coop_application::{AgentBackendKind, LocalA2aBackend, OrchestratorConfig};
+use coop_application::{AgentBackendKind, OrchestratorConfig};
 use coop_identity::ApiKeyDirectory;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -32,9 +35,9 @@ struct Args {
 struct AppState {
     card: AgentCard,
     auth: Arc<ApiKeyDirectory>,
-    local: Arc<SkillRouter>,
     orch: Arc<OrchestratorConfig>,
-    lindle: Option<LindleAgentsClient>,
+    orleans: Option<LindleAgentsClient>,
+    mcp: Option<LindleMcpClient>,
 }
 
 #[tokio::main]
@@ -45,10 +48,14 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
     let orch = OrchestratorConfig::from_env()?;
-    let lindle = connect_backends(&orch).await?;
-    let local = LocalA2aBackend::demo_router();
+    if orch.backends.is_empty() {
+        bail!(
+            "set AGENTS_SERVICE_URL + AGENTS_INTERNAL_SECRET and/or LINDLE_MCP_URL + MCP_SERVER_SECRET"
+        );
+    }
+    let connected = connect_backends(&orch).await?;
     let public_url = format!("http://{}", args.addr);
-    let card = build_card(&public_url, &orch, lindle.is_some(), &local).await;
+    let card = build_card(&public_url, &orch);
 
     let app = Router::new()
         .route(
@@ -57,16 +64,18 @@ async fn main() -> Result<()> {
         )
         .route(
             "/health",
-            get(|| async { Json(serde_json::json!({ "ok": true, "role": "orchestrator" })) }),
+            get(|| async {
+                Json(serde_json::json!({ "ok": true, "role": "orchestrator" }))
+            }),
         )
         .route("/a2a", post(a2a_rpc))
         .layer(CorsLayer::permissive())
         .with_state(AppState {
             card,
             auth: Arc::new(ApiKeyDirectory::demo()),
-            local: Arc::new(local),
             orch: Arc::new(orch),
-            lindle,
+            orleans: connected.orleans,
+            mcp: connected.mcp,
         });
 
     tracing::info!("coop orchestrator listening on http://{}", args.addr);
@@ -95,34 +104,72 @@ async fn a2a_rpc(
         .unwrap_or("")
         .to_string();
 
-    if let Err(e) = state.auth.authenticate_and_authorize(&headers, &skill) {
-        let msg = e.to_string();
-        let (status, code) = auth_failure(&msg);
+    let (principal, trust) = match state.auth.authenticate_and_authorize(&headers, &skill) {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = e.to_string();
+            let (status, code) = auth_failure(&msg);
+            return (
+                status,
+                Json(JsonRpcResponse::err(req.id, code, format!("{status}: {msg}"))),
+            )
+                .into_response();
+        }
+    };
+
+    tracing::info!(
+        agent = %principal.agent_id,
+        tenant = %principal.tenant_id,
+        skill = %skill,
+        trust = %trust,
+        "a2a message/send authorized"
+    );
+
+    let Some(backend) = state.orch.backend_for_skill(&skill) else {
         return (
-            status,
-            Json(JsonRpcResponse::err(req.id, code, format!("{status}: {msg}"))),
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(JsonRpcResponse::err(
+                req.id,
+                -32602,
+                format!("unknown skill `{skill}`"),
+            )),
         )
             .into_response();
-    }
+    };
 
-    let result = match state.orch.backend_for_skill(&skill).map(|b| b.kind) {
-        Some(AgentBackendKind::Lindle) if state.lindle.is_some() => {
-            state
-                .lindle
-                .as_ref()
-                .unwrap()
-                .dispatch_skill(&skill, &req)
-                .await
+    let result = match backend.kind {
+        AgentBackendKind::LindleMcp => {
+            if let Some(mcp) = &state.mcp {
+                mcp.dispatch_skill(&skill, &req).await
+            } else if let Some(orleans) = &state.orleans {
+                tracing::warn!(skill = %skill, "MCP down — falling back to Orleans");
+                orleans.dispatch_skill(&skill, &req).await
+            } else {
+                Err(anyhow::anyhow!("MCP backend not connected for `{skill}`"))
+            }
         }
-        _ if state.local.get(&skill).is_some() => forward(&state.local, &skill, &req).await,
-        Some(AgentBackendKind::Lindle) => {
-            Err(anyhow::anyhow!("Lindle backend not connected for `{skill}`"))
-        }
-        _ => Err(anyhow::anyhow!("no upstream for skill `{skill}`")),
+        AgentBackendKind::Lindle => match &state.orleans {
+            Some(orleans) => orleans.dispatch_skill(&skill, &req).await,
+            None => Err(anyhow::anyhow!("Orleans backend not connected for `{skill}`")),
+        },
     };
 
     match result {
-        Ok(resp) => Json(resp).into_response(),
+        Ok(mut resp) => {
+            if let Some(result) = resp.result.as_mut() {
+                if let Some(obj) = result.as_object_mut() {
+                    obj.insert(
+                        "coop_trust".into(),
+                        serde_json::json!({
+                            "band": trust.as_str(),
+                            "agent_id": principal.agent_id,
+                            "tenant_id": principal.tenant_id,
+                        }),
+                    );
+                }
+            }
+            Json(resp).into_response()
+        }
         Err(e) => (
             axum::http::StatusCode::BAD_GATEWAY,
             Json(JsonRpcResponse::err(req.id, -32002, format!("upstream error: {e}"))),

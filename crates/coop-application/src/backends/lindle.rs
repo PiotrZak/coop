@@ -33,12 +33,9 @@ impl LindleBackend {
             auth_style: AuthStyle::BearerAndLindleHeader,
             health_path: "/health".into(),
             default_tenant_id: "demo-tenant".into(),
-            skills: vec![
-                "negotiate".into(),
-                "supplier.read".into(),
-                "investigate".into(),
-            ],
-            priority: 0,
+            // negotiate / investigate — supplier.read prefers MCP when configured
+            skills: vec!["negotiate".into(), "investigate".into(), "supplier.read".into()],
+            priority: 10,
             required: true,
         }))
     }

@@ -47,10 +47,9 @@ terraform apply
 ## 5. Local
 
 ```bash
-cargo run -p coop-a2a --bin coop-supplier
-cargo run -p coop-a2a --bin coop-negotiation
+export AGENTS_SERVICE_URL=http://127.0.0.1:8080
+export AGENTS_INTERNAL_SECRET=...
+# optional: LINDLE_MCP_URL + MCP_SERVER_SECRET for supplier.read via MCP
 cargo run -p coop-a2a --bin coop-gateway
-cargo run -p coop-a2a --bin coop-demo -- --peer-url http://127.0.0.1:7090
+cargo run -p coop-a2a --bin coop-demo
 ```
-
-Lindle orchestration needs only `AGENTS_SERVICE_URL` + `AGENTS_INTERNAL_SECRET`.

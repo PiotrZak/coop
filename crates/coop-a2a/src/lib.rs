@@ -5,13 +5,10 @@
 pub mod card;
 pub mod client;
 pub mod lindle;
+pub mod mcp;
 pub mod models;
 pub mod orchestrator_http;
-pub mod proxy;
-pub mod server;
 
 pub use card::AgentCard;
 pub use client::A2aClient;
-pub use coop_application::{SkillRoute, SkillRouter};
 pub use models::*;
-pub use proxy::{build_gateway_card, forward, merge_skills};

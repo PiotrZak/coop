@@ -1,4 +1,4 @@
-//! Demo: Negotiation-A → Negotiation-B (A2A), B consults Supplier for supplier_id.
+//! Demo client: call coop-gateway negotiate skill (backed by Lindle).
 
 use anyhow::Result;
 use clap::Parser;
@@ -8,10 +8,9 @@ use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
 struct Args {
-    #[arg(long, default_value = "http://127.0.0.1:7101")]
+    #[arg(long, default_value = "http://127.0.0.1:7090")]
     peer_url: String,
 
-    /// Caller's Bearer key (Negotiation A calling Negotiation B).
     #[arg(long, default_value = "nego-a-demo-key")]
     bearer: String,
 
@@ -30,13 +29,6 @@ async fn main() -> Result<()> {
 
     let card = client.get_agent_card().await?;
     println!("Peer Agent Card: {} @ {}", card.name, card.url);
-    println!(
-        "Auth schemes: {:?}",
-        card.security
-            .iter()
-            .map(|s| format!("{:?}", s.scheme))
-            .collect::<Vec<_>>()
-    );
 
     let task = client
         .negotiate(NegotiateParams {

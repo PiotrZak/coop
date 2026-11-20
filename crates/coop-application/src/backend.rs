@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentBackendKind {
+    /// Lindle Orleans Agents (`POST /agents/*`).
     Lindle,
-    LocalA2a,
+    /// Lindle Backend MCP (`/mcp` tools/call).
+    LindleMcp,
 }
 
 /// How the shared secret is presented on the wire.
@@ -17,12 +19,13 @@ pub enum AuthStyle {
     Bearer,
     /// Bearer + `X-Lindle-Agents-Secret` (Lindle Host).
     BearerAndLindleHeader,
+    /// Bearer or `X-MCP-Secret` for Lindle `/mcp`.
+    McpSecret,
 }
 
 /// Generic base config for **any** agent backend.
 ///
-/// Concrete backends (Lindle, LocalA2a, …) are factories that fill this type.
-/// There is no parallel config shape per backend.
+/// Concrete backends (Lindle, …) are factories that fill this type.
 #[derive(Clone)]
 pub struct AgentBackendConfig {
     pub id: String,

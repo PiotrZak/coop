@@ -6,7 +6,7 @@ use http::header::{HeaderMap, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub use coop_domain::{Principal, RbacLevel, Role, Scope};
+pub use coop_domain::{IdentityProof, Principal, RbacLevel, Role, Scope, TrustScore};
 
 /// Schemes advertised on Agent Cards (OpenAPI-aligned).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,17 +79,29 @@ impl ApiKeyDirectory {
             .ok_or_else(|| anyhow!("invalid credentials"))
     }
 
-    /// AuthN then domain AuthZ.
+    /// AuthN then domain AuthZ + identity trust floor.
+    ///
+    /// Demo directory credentials use [`IdentityProof::SharedSecret`].
     pub fn authenticate_and_authorize(
         &self,
         headers: &HeaderMap,
         skill: &str,
-    ) -> Result<Principal> {
+    ) -> Result<(Principal, TrustScore)> {
+        self.authenticate_authorize_with_proof(headers, skill, IdentityProof::SharedSecret)
+    }
+
+    pub fn authenticate_authorize_with_proof(
+        &self,
+        headers: &HeaderMap,
+        skill: &str,
+        proof: IdentityProof,
+    ) -> Result<(Principal, TrustScore)> {
         let principal = self.authenticate(headers)?;
-        principal.authorize(skill)?;
-        Ok(principal)
+        let trust = principal.authorize_with_trust(skill, proof)?;
+        Ok((principal, trust))
     }
 }
+
 
 fn bearer(headers: &HeaderMap) -> Option<&str> {
     headers

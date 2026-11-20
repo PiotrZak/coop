@@ -216,7 +216,7 @@ impl LindleAgentsClient {
     fn authed(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         let req = req.header("Authorization", format!("Bearer {}", self.cfg.auth_secret));
         match self.cfg.auth_style {
-            AuthStyle::Bearer => req,
+            AuthStyle::Bearer | AuthStyle::McpSecret => req,
             AuthStyle::BearerAndLindleHeader => {
                 req.header("X-Lindle-Agents-Secret", &self.cfg.auth_secret)
             }

@@ -35,7 +35,7 @@ impl A2aClient {
             .context("agent card json")
     }
 
-    /// POST raw JSON-RPC to `/a2a` (used by gateway proxy).
+    /// POST raw JSON-RPC to `/a2a`.
     pub async fn forward_rpc(&self, req: &JsonRpcRequest) -> Result<JsonRpcResponse> {
         let url = format!("{}/a2a", self.base_url);
         self.http

@@ -1,10 +1,8 @@
-//! Generic AgentBackendConfig — Lindle / LocalA2a are entities of that base.
+//! Generic AgentBackendConfig — Lindle Orleans / MCP entities.
 
-use coop_application::{
-    AgentBackendConfig, AgentBackendKind, AuthStyle, LocalA2aBackend, OrchestratorConfig,
-};
+use coop_application::{AgentBackendConfig, AgentBackendKind, AuthStyle, OrchestratorConfig};
 
-fn lindle() -> AgentBackendConfig {
+fn orleans() -> AgentBackendConfig {
     AgentBackendConfig {
         id: "lindle-orleans".into(),
         kind: AgentBackendKind::Lindle,
@@ -13,67 +11,49 @@ fn lindle() -> AgentBackendConfig {
         auth_style: AuthStyle::BearerAndLindleHeader,
         health_path: "/health".into(),
         default_tenant_id: "t".into(),
-        skills: vec![
-            "negotiate".into(),
-            "supplier.read".into(),
-            "investigate".into(),
-        ],
-        priority: 0,
+        skills: vec!["negotiate".into(), "investigate".into(), "supplier.read".into()],
+        priority: 10,
         required: true,
     }
 }
 
-#[test]
-fn lindle_is_backend_config_entity() {
-    let b = lindle();
-    assert_eq!(b.kind, AgentBackendKind::Lindle);
-    assert!(b.supports("negotiate"));
+fn mcp() -> AgentBackendConfig {
+    AgentBackendConfig {
+        id: "lindle-mcp".into(),
+        kind: AgentBackendKind::LindleMcp,
+        base_url: "http://127.0.0.1:8000/mcp".into(),
+        auth_secret: "mcp-secret".into(),
+        auth_style: AuthStyle::McpSecret,
+        health_path: "/mcp".into(),
+        default_tenant_id: "t".into(),
+        skills: vec!["supplier.read".into()],
+        priority: 0,
+        required: false,
+    }
 }
 
 #[test]
-fn skill_picks_highest_priority() {
+fn mcp_preferred_for_supplier_read() {
     let mut orch = OrchestratorConfig::default();
-    orch.push(LocalA2aBackend::create(
-        "local-nego",
-        "http://127.0.0.1:7101",
-        "k",
-        vec!["negotiate".into()],
-    ));
-    orch.push(lindle());
-    let chosen = orch.backend_for_skill("negotiate").unwrap();
-    assert_eq!(chosen.kind, AgentBackendKind::Lindle);
+    orch.push(orleans());
+    orch.push(mcp());
+    let chosen = orch.backend_for_skill("supplier.read").unwrap();
+    assert_eq!(chosen.kind, AgentBackendKind::LindleMcp);
     assert_eq!(chosen.priority, 0);
 }
 
 #[test]
-fn local_when_lindle_absent() {
+fn negotiate_uses_orleans() {
     let mut orch = OrchestratorConfig::default();
-    orch.push(LocalA2aBackend::create(
-        "local",
-        "http://127.0.0.1:7101",
-        "k",
-        vec!["negotiate".into()],
-    ));
-    assert_eq!(
-        orch.backend_for_skill("negotiate").unwrap().kind,
-        AgentBackendKind::LocalA2a
-    );
+    orch.push(orleans());
+    orch.push(mcp());
+    let chosen = orch.backend_for_skill("negotiate").unwrap();
+    assert_eq!(chosen.kind, AgentBackendKind::Lindle);
 }
 
 #[test]
 fn secret_redacted_in_debug() {
-    let dbg = format!("{:?}", lindle());
+    let dbg = format!("{:?}", orleans());
     assert!(dbg.contains("***"));
     assert!(!dbg.contains("hunter2-do-not-leak"));
-}
-
-#[test]
-fn parse_local_routes() {
-    let (cfgs, router) = LocalA2aBackend::from_routes(
-        "negotiate=http://127.0.0.1:7101@key,supplier.read=http://127.0.0.1:7102@key",
-    )
-    .unwrap();
-    assert_eq!(cfgs.len(), 2);
-    assert!(router.get("negotiate").is_some());
-    assert_eq!(cfgs[0].kind, AgentBackendKind::LocalA2a);
 }

@@ -1,28 +1,36 @@
-# Coop as agent orchestrator
+# Coop as A2A edge over Lindle
 
-Backends share generic `AgentBackendConfig`. **Lindle is one entity** of that family.
+**Purpose:** foreign agents talk **A2A** to Coop; Coop calls **Lindle Orleans** and/or **Lindle MCP**.  
+YCA construction tools are out of scope.
 
-## Env (minimum)
-
-| Variable | When |
-|----------|------|
-| `AGENTS_SERVICE_URL` | Lindle Orleans base URL — if set, Lindle is primary + required |
-| `AGENTS_INTERNAL_SECRET` | Same secret as Lindle Host (`Bearer` / `X-Lindle-Agents-Secret`) |
-
-No other Coop env vars are required. Listen address defaults to `127.0.0.1:7090` (`--addr` to override).
-
-```bash
-export AGENTS_SERVICE_URL=http://127.0.0.1:8080
-export AGENTS_INTERNAL_SECRET=...   # from Lindle — never commit
-cargo run -p coop-a2a --bin coop-gateway
+```text
+Foreign A2A agent  --A2A-->  coop-gateway  --+--> Lindle /agents/*  (Orleans)
+                                             +--> Lindle /mcp         (tools/call)
 ```
 
-Local-only (no Lindle): unset both vars, start local bins, then gateway.
+## Env
 
-## Skill map → Lindle
+| Variable | Required | Role |
+|----------|----------|------|
+| `AGENTS_SERVICE_URL` | for Orleans skills | Orleans Agents base URL |
+| `AGENTS_INTERNAL_SECRET` | with URL | Bearer / `X-Lindle-Agents-Secret` |
+| `LINDLE_MCP_URL` | optional | Lindle Backend MCP URL (e.g. `http://127.0.0.1:8000/mcp`) |
+| `MCP_SERVER_SECRET` | with MCP URL | Same secret YCA uses for `/mcp` |
 
-| A2A skill | Lindle endpoint |
-|-----------|-----------------|
-| `negotiate` | `POST /agents/negotiate` |
-| `supplier.read` | `POST /agents/optimize-portfolio` |
-| `investigate` | `POST /agents/investigate` |
+Listen: `127.0.0.1:7090` (`--addr` to override).
+
+## Skill map
+
+| A2A skill | Backend | Min trust |
+|-----------|---------|-----------|
+| `supplier.read` | **MCP** `supplier-lookup` (if MCP up), else Orleans portfolio | Low |
+| `investigate` | Orleans `POST /agents/investigate` | Medium |
+| `negotiate` | Orleans `POST /agents/negotiate` | Medium |
+
+## Trust score
+
+After AuthN, Coop computes an identity-based [`TrustScore`](../crates/coop-domain/src/trust.rs) (`Untrusted`/`Low`/`Medium`/`High`) from role + proof strength, then enforces a per-skill floor. Attached on responses as `coop_trust`.
+
+## Observability
+
+Langfuse: planned — see [TODO_LANGFUSE.md](./TODO_LANGFUSE.md) (doc only).

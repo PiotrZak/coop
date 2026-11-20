@@ -3,23 +3,15 @@ name = "coop-a2a"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Coop A2A infrastructure — HTTP/JSON-RPC adapters + agent bins"
-
-[[bin]]
-name = "coop-negotiation"
-path = "src/bin/negotiation.rs"
-
-[[bin]]
-name = "coop-supplier"
-path = "src/bin/supplier.rs"
-
-[[bin]]
-name = "coop-demo"
-path = "src/bin/demo.rs"
+description = "Coop A2A infrastructure — HTTP/JSON-RPC gateway over Lindle"
 
 [[bin]]
 name = "coop-gateway"
 path = "src/bin/gateway.rs"
+
+[[bin]]
+name = "coop-demo"
+path = "src/bin/demo.rs"
 
 [dependencies]
 anyhow.workspace = true

@@ -1,7 +1,7 @@
 //! Orchestrator registry — ordered list of generic [`AgentBackendConfig`] entities.
 
 use crate::backend::{AgentBackendConfig, AgentBackendKind};
-use crate::backends::LindleBackend;
+use crate::backends::{LindleBackend, LindleMcpBackend};
 use anyhow::Result;
 
 #[derive(Debug, Clone, Default)]
@@ -10,9 +10,12 @@ pub struct OrchestratorConfig {
 }
 
 impl OrchestratorConfig {
-    /// Loads Lindle when `AGENTS_SERVICE_URL` + `AGENTS_INTERNAL_SECRET` are set.
+    /// Loads Orleans (`AGENTS_*`) and optional MCP (`LINDLE_MCP_URL` + `MCP_SERVER_SECRET`).
     pub fn from_env() -> Result<Self> {
         let mut backends = Vec::new();
+        if let Some(mcp) = LindleMcpBackend::from_env()? {
+            backends.push(mcp);
+        }
         if let Some(lindle) = LindleBackend::from_env()? {
             backends.push(lindle);
         }

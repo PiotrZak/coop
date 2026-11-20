@@ -3,7 +3,7 @@ name = "coop-application"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Coop application layer — use cases (negotiate, supplier, routing)"
+description = "Coop application layer — orchestrator + backend config"
 
 [dependencies]
 anyhow.workspace = true

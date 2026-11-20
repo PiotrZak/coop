@@ -1,7 +1,7 @@
 //! Concrete backend entities — each specializes [`crate::backend::AgentBackendConfig`].
 
 mod lindle;
-mod local;
+mod mcp;
 
 pub use lindle::LindleBackend;
-pub use local::LocalA2aBackend;
+pub use mcp::LindleMcpBackend;
