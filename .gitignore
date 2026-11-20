@@ -1,0 +1,15 @@
+/target/
+**/*.rs.bk
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+credentials.json
+**/terraform.tfvars
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+**/crash.log
+**/.terraform.lock.hcl

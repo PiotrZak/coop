@@ -1,0 +1,33 @@
+[package]
+name = "coop-a2a"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Coop A2A edge: Negotiation↔Negotiation + Supplier consult"
+
+[[bin]]
+name = "coop-negotiation"
+path = "src/bin/negotiation.rs"
+
+[[bin]]
+name = "coop-supplier"
+path = "src/bin/supplier.rs"
+
+[[bin]]
+name = "coop-demo"
+path = "src/bin/demo.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+clap.workspace = true
+coop-identity = { path = "../coop-identity" }
+http.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true

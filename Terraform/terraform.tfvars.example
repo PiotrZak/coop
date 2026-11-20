@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars (gitignored) and fill YOUR values.
+# Do not paste Lindle / Cognispace secrets or project IDs unless intentional.
+
+project_id       = "your-gcp-project-id"
+region           = "europe-central2"
+gar_location     = "europe-central2"
+service_name     = "coop-a2a"
+image_tag        = "placeholder"
+github_sa_email  = "github-actions-deployer@your-gcp-project-id.iam.gserviceaccount.com"
