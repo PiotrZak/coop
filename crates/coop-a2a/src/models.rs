@@ -1,45 +1,12 @@
+//! Transport DTOs + domain A2A re-exports.
+
+pub use coop_domain::{
+    completed_task, Artifact, Message, NegotiateParams, Part, SupplierLookupParams, Task,
+    TaskStatus,
+};
+
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
-    pub id: Uuid,
-    pub skill: String,
-    pub status: TaskStatus,
-    pub messages: Vec<Message>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub artifact: Option<Artifact>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
-    Submitted,
-    Working,
-    Completed,
-    Failed,
-    InputRequired,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: String,
-    pub parts: Vec<Part>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Part {
-    Text { text: String },
-    Data { data: serde_json::Value },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Artifact {
-    pub name: String,
-    pub mime_type: String,
-    pub data: serde_json::Value,
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
@@ -65,21 +32,34 @@ pub struct JsonRpcError {
     pub message: String,
 }
 
-/// Negotiation skill input (peer Negotiation Agent).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NegotiateParams {
-    pub counterparty: String,
-    pub category: String,
-    pub ask: String,
-    /// When set, the receiving Negotiation Agent will consult Supplier for this id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub supplier_id: Option<String>,
+impl JsonRpcResponse {
+    pub fn ok(id: impl Into<String>, result: serde_json::Value) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            id: id.into(),
+            result: Some(result),
+            error: None,
+        }
+    }
+
+    pub fn err(id: impl Into<String>, code: i32, message: impl Into<String>) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            id: id.into(),
+            result: None,
+            error: Some(JsonRpcError {
+                code,
+                message: message.into(),
+            }),
+        }
+    }
 }
 
-/// Supplier skill input.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SupplierLookupParams {
-    pub supplier_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
+/// Map AuthN/AuthZ failure text → HTTP status + JSON-RPC code.
+pub fn auth_failure(msg: &str) -> (StatusCode, i32) {
+    if msg.contains("missing credentials") || msg.contains("invalid credentials") {
+        (StatusCode::UNAUTHORIZED, -32001)
+    } else {
+        (StatusCode::FORBIDDEN, -32003)
+    }
 }

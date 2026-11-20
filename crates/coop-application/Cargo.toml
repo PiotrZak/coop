@@ -1,0 +1,12 @@
+[package]
+name = "coop-application"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Coop application layer — use cases (negotiate, supplier, routing)"
+
+[dependencies]
+anyhow.workspace = true
+coop-domain = { path = "../coop-domain" }
+serde.workspace = true
+serde_json.workspace = true

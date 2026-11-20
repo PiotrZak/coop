@@ -4,9 +4,7 @@ name: "[PROD] Coop Cloud Run"
 # GitHub Actions secrets — do not copy Lindle secret values here.
 #
 # Required repo secrets (create empty/own values in GitHub → Settings → Secrets):
-#   GCP_SA_KEY          — deployer service account JSON (your GCP project)
-# Optional:
-#   COOP_API_KEYS_JSON  — production API-key directory (JSON), if not using demo keys
+#   GCP_SA_KEY — deployer service account JSON (your GCP project)
 
 on:
   push:
@@ -78,8 +76,6 @@ jobs:
           flags: "--allow-unauthenticated --min-instances=0 --cpu=1 --memory=512Mi --port=8080 --timeout=60"
           env_vars: |
             RUST_LOG=info
-            COOP_NEGO_NAME=negotiation
-            COOP_NEGO_ADDR=0.0.0.0:8080
 
       - name: Show URL
         run: gcloud run services describe ${{ env.SERVICE }} --region ${{ env.REGION }} --format='value(status.url)'

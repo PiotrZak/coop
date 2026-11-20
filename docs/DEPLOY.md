@@ -48,6 +48,9 @@ terraform apply
 
 ```bash
 cargo run -p coop-a2a --bin coop-supplier
-COOP_NEGO_ADDR=127.0.0.1:7101 cargo run -p coop-a2a --bin coop-negotiation
-cargo run -p coop-a2a --bin coop-demo -- --peer-url http://127.0.0.1:7101
+cargo run -p coop-a2a --bin coop-negotiation
+cargo run -p coop-a2a --bin coop-gateway
+cargo run -p coop-a2a --bin coop-demo -- --peer-url http://127.0.0.1:7090
 ```
+
+Lindle orchestration needs only `AGENTS_SERVICE_URL` + `AGENTS_INTERNAL_SECRET`.

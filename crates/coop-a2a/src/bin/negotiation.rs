@@ -1,7 +1,4 @@
-//! Negotiation Agent A2A edge.
-//!
-//! Accepts peer Negotiation `negotiate` calls. When `supplier_id` is present,
-//! consults the Supplier Agent over A2A before returning a pack artifact.
+//! Negotiation Agent — presentation adapter over application negotiation use case.
 
 use anyhow::Result;
 use clap::Parser;
@@ -9,6 +6,7 @@ use coop_a2a::card::AgentCard;
 use coop_a2a::client::A2aClient;
 use coop_a2a::models::*;
 use coop_a2a::server::{completed_task, router, AppState};
+use coop_application::build_negotiation_pack;
 use coop_identity::ApiKeyDirectory;
 use serde_json::json;
 use std::net::SocketAddr;
@@ -17,22 +15,13 @@ use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
 struct Args {
-    #[arg(long, env = "COOP_NEGO_NAME", default_value = "negotiation-a")]
+    #[arg(long, default_value = "negotiation-b")]
     name: String,
-
-    #[arg(long, env = "COOP_NEGO_ADDR", default_value = "127.0.0.1:7100")]
+    #[arg(long, default_value = "127.0.0.1:7101")]
     addr: SocketAddr,
-
-    /// Supplier Agent base URL for consults.
-    #[arg(
-        long,
-        env = "COOP_SUPPLIER_URL",
-        default_value = "http://127.0.0.1:7102"
-    )]
+    #[arg(long, default_value = "http://127.0.0.1:7102")]
     supplier_url: String,
-
-    /// Bearer key used when this Negotiation Agent calls Supplier.
-    #[arg(long, env = "COOP_SUPPLIER_BEARER", default_value = "nego-a-demo-key")]
+    #[arg(long, default_value = "nego-b-demo-key")]
     supplier_bearer: String,
 }
 
@@ -59,7 +48,7 @@ async fn main() -> Result<()> {
                 ));
             }
 
-            let params = extract_negotiate(&message).unwrap_or(NegotiateParams {
+            let params = message.data_part().unwrap_or(NegotiateParams {
                 counterparty: "unknown".into(),
                 category: "general".into(),
                 ask: "(empty)".into(),
@@ -84,68 +73,18 @@ async fn main() -> Result<()> {
                 None
             };
 
-            let pack = json!({
-                "from_agent": agent_name,
-                "caller": principal.agent_id,
-                "caller_tenant": principal.tenant_id,
-                "counterparty": params.counterparty,
-                "category": params.category,
-                "ask": params.ask,
-                "supplier_consult": supplier_artifact,
-                "options": [
-                    { "label": "Hold price + volume commit", "risk": "low" },
-                    { "label": "Ask 8–12% reduction", "risk": "medium" },
-                    { "label": "Dual-source threat", "risk": "high" },
-                ],
-                "talking_points": [
-                    "Use supplier brief leverage only if present",
-                    "HITL required before any external send",
-                ],
-                "hitl": true,
-            });
-
-            Ok(completed_task(
-                "negotiate",
-                Artifact {
-                    name: "negotiation_pack".into(),
-                    mime_type: "application/json".into(),
-                    data: pack,
-                },
-                Message {
-                    role: "agent".into(),
-                    parts: vec![Part::Text {
-                        text: format!(
-                            "Negotiation pack from {} (supplier consult: {})",
-                            agent_name,
-                            params.supplier_id.as_deref().unwrap_or("none")
-                        ),
-                    }],
-                },
-            ))
+            let (artifact, reply) =
+                build_negotiation_pack(&agent_name, &principal, &params, supplier_artifact);
+            Ok(completed_task("negotiate", artifact, reply))
         })
     });
 
-    let state = AppState {
+    let app = router(AppState {
         card,
         auth,
         handler,
-    };
-    let app = router(state);
-    tracing::info!(
-        "{} Negotiation Agent listening on http://{}",
-        args.name,
-        args.addr
-    );
-    let listener = tokio::net::TcpListener::bind(args.addr).await?;
-    axum::serve(listener, app).await?;
+    });
+    tracing::info!("{} listening on http://{}", args.name, args.addr);
+    axum::serve(tokio::net::TcpListener::bind(args.addr).await?, app).await?;
     Ok(())
-}
-
-fn extract_negotiate(message: &Message) -> Option<NegotiateParams> {
-    for part in &message.parts {
-        if let Part::Data { data } = part {
-            return serde_json::from_value(data.clone()).ok();
-        }
-    }
-    None
 }

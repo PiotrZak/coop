@@ -16,8 +16,6 @@ COPY --from=build --chown=coop:coop /src/target/release/coop-negotiation /app/co
 COPY --from=build --chown=coop:coop /src/target/release/coop-supplier /app/coop-supplier
 COPY --chown=coop:coop agents /app/agents
 
-ENV COOP_NEGO_ADDR=0.0.0.0:8080
-ENV COOP_NEGO_NAME=negotiation
 ENV RUST_LOG=info
 EXPOSE 8080
 
@@ -27,3 +25,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=10s \
   CMD curl -fsS http://127.0.0.1:8080/.well-known/agent.json || exit 1
 
 ENTRYPOINT ["/app/coop-negotiation"]
+CMD ["--addr", "0.0.0.0:8080", "--name", "negotiation"]

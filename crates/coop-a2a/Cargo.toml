@@ -3,7 +3,7 @@ name = "coop-a2a"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Coop A2A edge: Negotiation↔Negotiation + Supplier consult"
+description = "Coop A2A infrastructure — HTTP/JSON-RPC adapters + agent bins"
 
 [[bin]]
 name = "coop-negotiation"
@@ -17,10 +17,16 @@ path = "src/bin/supplier.rs"
 name = "coop-demo"
 path = "src/bin/demo.rs"
 
+[[bin]]
+name = "coop-gateway"
+path = "src/bin/gateway.rs"
+
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
 clap.workspace = true
+coop-application = { path = "../coop-application" }
+coop-domain = { path = "../coop-domain" }
 coop-identity = { path = "../coop-identity" }
 http.workspace = true
 reqwest.workspace = true

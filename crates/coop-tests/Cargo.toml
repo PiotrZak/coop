@@ -1,0 +1,15 @@
+[package]
+name = "coop-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Coop test layer — domain / application / identity / a2a coverage"
+
+[dependencies]
+coop-application = { path = "../coop-application" }
+coop-a2a = { path = "../coop-a2a" }
+coop-domain = { path = "../coop-domain" }
+coop-identity = { path = "../coop-identity" }
+http.workspace = true
+serde_json.workspace = true

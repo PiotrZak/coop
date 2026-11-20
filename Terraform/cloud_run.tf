@@ -17,16 +17,6 @@ resource "google_cloud_run_v2_service" "coop" {
         value = "info"
       }
 
-      env {
-        name  = "COOP_NEGO_NAME"
-        value = "negotiation"
-      }
-
-      env {
-        name  = "COOP_NEGO_ADDR"
-        value = "0.0.0.0:8080"
-      }
-
       resources {
         limits = {
           cpu    = "1"

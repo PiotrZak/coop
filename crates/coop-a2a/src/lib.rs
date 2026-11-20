@@ -1,14 +1,17 @@
-//! Coop A2A — thin JSON-RPC-shaped edge for Negotiation ↔ Negotiation
-//! with optional Supplier Agent consult.
+//! Coop A2A **infrastructure / presentation** — JSON-RPC HTTP edge.
 //!
-//! Protocol shape follows A2A ideas (Agent Card, skills, tasks, artifacts).
-//! AuthN is HTTP Bearer / API key per Agent Card `security` — never in the body.
+//! Domain: [`coop_domain`]. Application: [`coop_application`]. Identity AuthN: [`coop_identity`].
 
 pub mod card;
 pub mod client;
+pub mod lindle;
 pub mod models;
+pub mod orchestrator_http;
+pub mod proxy;
 pub mod server;
 
 pub use card::AgentCard;
 pub use client::A2aClient;
+pub use coop_application::{SkillRoute, SkillRouter};
 pub use models::*;
+pub use proxy::{build_gateway_card, forward, merge_skills};

@@ -1,8 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/coop-domain",
+    "crates/coop-application",
     "crates/coop-identity",
     "crates/coop-a2a",
+    "crates/coop-tests",
 ]
 default-members = ["crates/coop-a2a"]
 
@@ -15,12 +18,9 @@ repository = "https://github.com/PiotrZak/coop"
 [workspace.dependencies]
 anyhow = "1"
 axum = { version = "0.8", features = ["macros"] }
-base64 = "0.22"
-hmac = "0.12"
 http = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace"] }

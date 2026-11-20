@@ -35,6 +35,23 @@ impl A2aClient {
             .context("agent card json")
     }
 
+    /// POST raw JSON-RPC to `/a2a` (used by gateway proxy).
+    pub async fn forward_rpc(&self, req: &JsonRpcRequest) -> Result<JsonRpcResponse> {
+        let url = format!("{}/a2a", self.base_url);
+        self.http
+            .post(url)
+            .header("Authorization", format!("Bearer {}", self.bearer))
+            .json(req)
+            .send()
+            .await
+            .context("forward_rpc")?
+            .error_for_status()
+            .context("forward_rpc status")?
+            .json()
+            .await
+            .context("forward_rpc json")
+    }
+
     pub async fn message_send(&self, skill: &str, message: Message) -> Result<Task> {
         let req = JsonRpcRequest {
             jsonrpc: "2.0".into(),
@@ -46,20 +63,7 @@ impl A2aClient {
             }),
         };
 
-        let url = format!("{}/a2a", self.base_url);
-        let resp: JsonRpcResponse = self
-            .http
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.bearer))
-            .json(&req)
-            .send()
-            .await
-            .context("message/send")?
-            .error_for_status()
-            .context("message/send status")?
-            .json()
-            .await
-            .context("message/send json")?;
+        let resp = self.forward_rpc(&req).await?;
 
         if let Some(err) = resp.error {
             return Err(anyhow!("A2A error {}: {}", err.code, err.message));
