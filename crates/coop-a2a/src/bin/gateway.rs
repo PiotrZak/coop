@@ -16,7 +16,7 @@ use coop_a2a::card::AgentCard;
 use coop_a2a::models::{auth_failure, JsonRpcRequest, JsonRpcResponse};
 use coop_a2a::orchestrator_http::{build_card, connect_backends};
 use coop_application::OrchestratorConfig;
-use coop_identity::ApiKeyDirectory;
+use coop_identity::{ApiKeyDirectory, IdentityProof};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
@@ -63,6 +63,7 @@ async fn main() -> Result<()> {
                 Json(serde_json::json!({ "ok": true, "role": "orchestrator" }))
             }),
         )
+        .route("/whoami", get(whoami))
         .route("/a2a", post(a2a_rpc))
         .layer(CorsLayer::permissive())
         .with_state(AppState {
@@ -74,6 +75,31 @@ async fn main() -> Result<()> {
     tracing::info!("coop orchestrator listening on http://{}", args.addr);
     axum::serve(tokio::net::TcpListener::bind(args.addr).await?, app).await?;
     Ok(())
+}
+
+/// Authenticated identity introspection — AuthN only, no skill / Lindle.
+async fn whoami(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
+    let principal = match state.auth.authenticate(&headers) {
+        Ok(p) => p,
+        Err(e) => {
+            let msg = e.to_string();
+            let (status, _) = auth_failure(&msg);
+            return (status, Json(serde_json::json!({ "error": msg }))).into_response();
+        }
+    };
+
+    // Demo directory always uses SharedSecret; bump when real proof detection exists.
+    let proof = IdentityProof::SharedSecret;
+    let trust = principal.trust_score(proof);
+
+    Json(serde_json::json!({
+        "agent_id": principal.agent_id,
+        "tenant_id": principal.tenant_id,
+        "roles": principal.roles,
+        "trust": trust.as_str(),
+        "proof": proof,
+    }))
+    .into_response()
 }
 
 async fn a2a_rpc(
