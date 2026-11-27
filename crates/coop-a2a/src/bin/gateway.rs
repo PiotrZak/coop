@@ -1,8 +1,4 @@
-//! Coop orchestrator — A2A edge over generic [`AgentBackend`] adapters.
-//!
-//! Env:
-//! - Orleans (AgentsHttp): `AGENTS_SERVICE_URL`, `AGENTS_INTERNAL_SECRET`
-//! - MCP (optional): `LINDLE_MCP_URL`, `MCP_SERVER_SECRET`
+//! Coop auth hub — thin HTTP over [`HubService`].
 
 use anyhow::{bail, Result};
 use axum::extract::State;
@@ -11,12 +7,12 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Parser;
-use coop_a2a::agent_backend::BackendRegistry;
 use coop_a2a::card::AgentCard;
-use coop_a2a::models::{auth_failure, JsonRpcRequest, JsonRpcResponse};
+use coop_a2a::hub::{HubError, HubService};
+use coop_a2a::models::{JsonRpcRequest, JsonRpcResponse};
 use coop_a2a::orchestrator_http::{build_card, connect_backends};
 use coop_application::OrchestratorConfig;
-use coop_identity::ApiKeyDirectory;
+use coop_identity::IdentityAuth;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
@@ -31,8 +27,7 @@ struct Args {
 #[derive(Clone)]
 struct AppState {
     card: AgentCard,
-    auth: Arc<ApiKeyDirectory>,
-    backends: BackendRegistry,
+    hub: HubService,
 }
 
 #[tokio::main]
@@ -44,13 +39,12 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let orch = OrchestratorConfig::from_env()?;
     if orch.backends.is_empty() {
-        bail!(
-            "set AGENTS_SERVICE_URL + AGENTS_INTERNAL_SECRET and/or LINDLE_MCP_URL + MCP_SERVER_SECRET"
-        );
+        bail!("set AGENTS_SERVICE_URL / LINDLE_MCP_URL / COOP_PEERS_JSON");
     }
-    let backends = connect_backends(&orch).await?;
-    let public_url = format!("http://{}", args.addr);
-    let card = build_card(&public_url, &orch);
+    let agents = connect_backends(&orch).await?;
+    let auth = Arc::new(IdentityAuth::from_env().await?);
+    let card = build_card(&format!("http://{}", args.addr), &orch, &auth);
+    let hub = HubService::new(auth, agents);
 
     let app = Router::new()
         .route(
@@ -59,19 +53,13 @@ async fn main() -> Result<()> {
         )
         .route(
             "/health",
-            get(|| async {
-                Json(serde_json::json!({ "ok": true, "role": "orchestrator" }))
-            }),
+            get(|| async { Json(serde_json::json!({ "ok": true, "role": "auth_hub" })) }),
         )
         .route("/a2a", post(a2a_rpc))
         .layer(CorsLayer::permissive())
-        .with_state(AppState {
-            card,
-            auth: Arc::new(ApiKeyDirectory::demo()),
-            backends,
-        });
+        .with_state(AppState { card, hub });
 
-    tracing::info!("coop orchestrator listening on http://{}", args.addr);
+    tracing::info!("coop auth hub on http://{}", args.addr);
     axum::serve(tokio::net::TcpListener::bind(args.addr).await?, app).await?;
     Ok(())
 }
@@ -89,84 +77,22 @@ async fn a2a_rpc(
         ))
         .into_response();
     }
-
-    let skill = req
-        .params
-        .get("skill")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let (principal, trust) = match state.auth.authenticate_and_authorize(&headers, &skill) {
-        Ok(v) => v,
-        Err(e) => {
-            let msg = e.to_string();
-            let (status, code) = auth_failure(&msg);
-            return (
-                status,
-                Json(JsonRpcResponse::err(req.id, code, format!("{status}: {msg}"))),
-            )
-                .into_response();
-        }
-    };
-
-    tracing::info!(
-        agent = %principal.agent_id,
-        tenant = %principal.tenant_id,
-        skill = %skill,
-        trust = %trust,
-        "a2a message/send authorized"
-    );
-
-    let Some(primary) = state.backends.for_skill(&skill) else {
-        return (
+    let id = req.id.clone();
+    match state.hub.handle_message_send(&headers, req).await {
+        Ok(resp) => Json(resp).into_response(),
+        Err(HubError::Auth {
+            status,
+            code,
+            message,
+        }) => (status, Json(JsonRpcResponse::err(id, code, message))).into_response(),
+        Err(HubError::BadRequest { code, message }) => (
             axum::http::StatusCode::BAD_REQUEST,
-            Json(JsonRpcResponse::err(
-                req.id,
-                -32602,
-                format!("unknown skill `{skill}`"),
-            )),
+            Json(JsonRpcResponse::err(id, code, message)),
         )
-            .into_response();
-    };
-
-    let result = match primary.dispatch_skill(&skill, &req).await {
-        Ok(resp) => Ok(resp),
-        Err(e) => {
-            if let Some(fallback) = state.backends.fallback_for_skill(&skill, primary.id()) {
-                tracing::warn!(
-                    skill = %skill,
-                    primary = %primary.id(),
-                    fallback = %fallback.id(),
-                    error = %e,
-                    "primary backend failed — trying fallback"
-                );
-                fallback.dispatch_skill(&skill, &req).await
-            } else {
-                Err(e)
-            }
-        }
-    };
-
-    match result {
-        Ok(mut resp) => {
-            if let Some(result) = resp.result.as_mut() {
-                if let Some(obj) = result.as_object_mut() {
-                    obj.insert(
-                        "coop_trust".into(),
-                        serde_json::json!({
-                            "band": trust.as_str(),
-                            "agent_id": principal.agent_id,
-                            "tenant_id": principal.tenant_id,
-                        }),
-                    );
-                }
-            }
-            Json(resp).into_response()
-        }
-        Err(e) => (
+            .into_response(),
+        Err(HubError::Upstream { message }) => (
             axum::http::StatusCode::BAD_GATEWAY,
-            Json(JsonRpcResponse::err(req.id, -32002, format!("upstream error: {e}"))),
+            Json(JsonRpcResponse::err(id, -32002, message)),
         )
             .into_response(),
     }

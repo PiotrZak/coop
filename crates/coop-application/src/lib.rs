@@ -1,9 +1,8 @@
-//! Application layer — orchestrator over [`coop_domain`].
+//! Application layer — hub agent registry config.
 
 pub mod backend;
-pub mod backends;
+mod backends;
 mod orchestrator;
 
 pub use backend::{AgentBackendConfig, AgentBackendKind, AuthStyle};
-pub use backends::{LindleBackend, LindleMcpBackend, LindleOrleansBackend};
 pub use orchestrator::OrchestratorConfig;

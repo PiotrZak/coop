@@ -1,4 +1,4 @@
-//! Demo client: call coop-gateway negotiate skill (backed by Lindle).
+//! Demo client: call coop auth hub negotiate skill (routes to registered adapter).
 
 use anyhow::Result;
 use clap::Parser;
@@ -16,6 +16,10 @@ struct Args {
 
     #[arg(long, default_value = "acme-cloud")]
     supplier_id: String,
+
+    /// Optional hub adapter id (e.g. lindle-orleans).
+    #[arg(long)]
+    target_agent: Option<String>,
 }
 
 #[tokio::main]
@@ -31,12 +35,15 @@ async fn main() -> Result<()> {
     println!("Peer Agent Card: {} @ {}", card.name, card.url);
 
     let task = client
-        .negotiate(NegotiateParams {
-            counterparty: "Acme Cloud sales".into(),
-            category: "SaaS".into(),
-            ask: "Prepare options for renewal down 10%".into(),
-            supplier_id: Some(args.supplier_id),
-        })
+        .negotiate_to(
+            NegotiateParams {
+                counterparty: "Acme Cloud sales".into(),
+                category: "SaaS".into(),
+                ask: "Prepare options for renewal down 10%".into(),
+                supplier_id: Some(args.supplier_id),
+            },
+            args.target_agent.as_deref(),
+        )
         .await?;
 
     println!("Task {} status={:?}", task.id, task.status);

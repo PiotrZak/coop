@@ -1,6 +1,8 @@
-//! Generic AgentBackendConfig — Lindle factories specialize AgentsHttp / Mcp kinds.
+//! Agent adapter configs — Lindle and peers are equal registrations.
 
-use coop_application::{AgentBackendConfig, AgentBackendKind, AuthStyle, OrchestratorConfig};
+use coop_application::{
+    AgentBackendConfig, AgentBackendKind, AuthStyle, OrchestratorConfig,
+};
 
 fn orleans() -> AgentBackendConfig {
     AgentBackendConfig {
@@ -36,12 +38,28 @@ fn mcp() -> AgentBackendConfig {
     }
 }
 
+fn peer_a() -> AgentBackendConfig {
+    AgentBackendConfig {
+        id: "agent-a".into(),
+        kind: AgentBackendKind::A2aPeer,
+        base_url: "http://127.0.0.1:7091".into(),
+        auth_secret: "peer-secret".into(),
+        auth_style: AuthStyle::Bearer,
+        health_path: "/.well-known/agent.json".into(),
+        default_tenant_id: "t".into(),
+        skills: vec!["peer.message".into()],
+        priority: 50,
+        required: false,
+    }
+}
+
 #[test]
 fn mcp_preferred_for_supplier_read() {
     let mut orch = OrchestratorConfig::default();
     orch.push(orleans());
     orch.push(mcp());
     let chosen = orch.backend_for_skill("supplier.read").unwrap();
+    assert_eq!(chosen.id, "lindle-mcp");
     assert_eq!(chosen.kind, AgentBackendKind::Mcp);
 }
 
@@ -54,6 +72,15 @@ fn negotiate_uses_agents_http() {
         orch.backend_for_skill("negotiate").unwrap().kind,
         AgentBackendKind::AgentsHttp
     );
+}
+
+#[test]
+fn by_id_treats_lindle_and_peers_equally() {
+    let mut orch = OrchestratorConfig::default();
+    orch.push(orleans());
+    orch.push(peer_a());
+    assert_eq!(orch.by_id("lindle-orleans").unwrap().kind, AgentBackendKind::AgentsHttp);
+    assert_eq!(orch.by_id("agent-a").unwrap().kind, AgentBackendKind::A2aPeer);
 }
 
 #[test]

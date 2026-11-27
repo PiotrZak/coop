@@ -1,70 +1,141 @@
-# Coop — Identity + A2A
+# Coop
 
-**A2A phone line** so foreign agents can reach [Lindle](https://github.com/PiotrZak/Lindle) — Orleans Agents and/or Lindle MCP — with AuthN, identity **trust score**, and RBAC.
-
-Not a YCA chat wrapper; YCA construction tools stay on YCA.
-
-## Architecture
-
-![Coop DDD architecture](./docs/architecture.svg)
+A2A **auth hub**: agents authenticate here, then Coop routes to any registered adapter (AgentA, AgentB, Lindle Orleans/MCP, …).
 
 ```
-Foreign A2A agent
-        |
-        v
- coop-gateway  -- AuthN + TrustScore + AuthZ
-        |
-        +-- Lindle Orleans  POST /agents/*
-        +-- Lindle MCP      tools/call   (optional)
+Agent A ──┐
+Agent B ──┼──► coop-gateway ──► adapters (by target_agent or skill)
+Agent N ──┘         │ AuthN + trust + RBAC
 ```
 
-**Repo:** https://github.com/PiotrZak/coop
+More detail: [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md) · [docs/A2A_AUTH_AND_FLOW.md](docs/A2A_AUTH_AND_FLOW.md)
 
-See [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md). Langfuse: [docs/TODO_LANGFUSE.md](docs/TODO_LANGFUSE.md) (TODO only).
-
-## Trust score
-
-Identity-based bands (`Low` / `Medium` / `High`) from role + credential strength. Skills require a minimum band (`supplier.read` ≥ Low; `negotiate` / `investigate` ≥ Medium). Source: [`crates/coop-domain/src/trust.rs`](crates/coop-domain/src/trust.rs).
-
-## RBAC
-
-**Source of truth:** [`crates/coop-domain/src/rbac.rs`](crates/coop-domain/src/rbac.rs)
-
-| Skill | Min RBAC | Min trust | Upstream |
-|-------|----------|-----------|----------|
-| `supplier.read` | Read | Low | MCP `supplier-lookup` (preferred) or Orleans |
-| `negotiate` | Act | Medium | Orleans `/agents/negotiate` |
-| `investigate` | Act | Medium | Orleans `/agents/investigate` |
-
-Demo keys: `nego-a-demo-key`=`Operator`, `nego-b-demo-key`=`Admin`, `supplier-demo-key`=`Reader`, `gateway-service-key`=`Service`.
-
-## Run locally
+## Run
 
 ```bash
 export AGENTS_SERVICE_URL=http://127.0.0.1:8080
-export AGENTS_INTERNAL_SECRET=...          # Lindle Agents — never commit
-# optional MCP:
-# export LINDLE_MCP_URL=http://127.0.0.1:8000/mcp
-# export MCP_SERVER_SECRET=...
+export AGENTS_INTERNAL_SECRET=…   # never commit
+# optional: LINDLE_MCP_URL + MCP_SERVER_SECRET
+# optional: COOP_PEERS_JSON='[{"id":"agent-a","url":"http://127.0.0.1:7091","secret":"…"}]'
 
-cargo run -p coop-a2a --bin coop-gateway
+cargo run -p coop-a2a --bin coop-gateway   # http://127.0.0.1:7090
 cargo run -p coop-a2a --bin coop-demo
 ```
 
-Agent Card: `GET http://127.0.0.1:7090/.well-known/agent.json`
+Demo keys: `nego-a-demo-key` (Operator), `nego-b-demo-key` (Admin), `supplier-demo-key` (Reader).
 
-## Crates (DDD)
+## Communication samples
 
-| Layer | Crate | Role |
-|-------|-------|------|
-| Domain | `coop-domain` | RBAC + TrustScore + A2A types |
-| Application | `coop-application` | Orchestrator + Orleans/MCP backend config |
-| Infrastructure | `coop-identity` | Bearer AuthN |
-| Presentation | `coop-a2a` | Gateway + demo client |
-| Test | `coop-tests` | Cross-layer tests |
+All calls: `POST /a2a` with `Authorization: Bearer <key>` (or JWT / mTLS headers).
 
-## CI / CD
+### Skill route (no target — hub picks by priority)
 
-See [docs/DEPLOY.md](docs/DEPLOY.md).
+```bash
+curl -s http://127.0.0.1:7090/a2a \
+  -H 'Authorization: Bearer nego-a-demo-key' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "message/send",
+    "params": {
+      "skill": "negotiate",
+      "message": {
+        "role": "user",
+        "parts": [{
+          "kind": "data",
+          "data": {
+            "counterparty": "Acme Cloud sales",
+            "category": "SaaS",
+            "ask": "Renewal down 10%",
+            "supplier_id": "acme-cloud"
+          }
+        }]
+      }
+    }
+  }'
+```
 
-Apache-2.0.
+### Pin an adapter (`target_agent`)
+
+```bash
+curl -s http://127.0.0.1:7090/a2a \
+  -H 'Authorization: Bearer nego-a-demo-key' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "2",
+    "method": "message/send",
+    "params": {
+      "skill": "negotiate",
+      "target_agent": "lindle-orleans",
+      "message": {
+        "role": "user",
+        "parts": [{ "kind": "text", "text": "run negotiate on Orleans adapter" }]
+      }
+    }
+  }'
+```
+
+### Agent → agent (registered peer)
+
+```bash
+curl -s http://127.0.0.1:7090/a2a \
+  -H 'Authorization: Bearer nego-b-demo-key' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "3",
+    "method": "message/send",
+    "params": {
+      "skill": "peer.message",
+      "target_agent": "agent-a",
+      "message": {
+        "role": "user",
+        "parts": [{ "kind": "text", "text": "hello from negotiation-b" }]
+      }
+    }
+  }'
+```
+
+### Trust on the response
+
+Successful results include `coop_trust`:
+
+```json
+{
+  "coop_trust": {
+    "band": "medium",
+    "proof": "shared_secret",
+    "agent_id": "negotiation-a",
+    "tenant_id": "buyer-tenant",
+    "target_agent": "lindle-orleans"
+  }
+}
+```
+
+### Agent card
+
+```bash
+curl -s http://127.0.0.1:7090/.well-known/agent.json
+```
+
+## Skills (min trust)
+
+| Skill | Trust | Typical `target_agent` |
+|-------|-------|------------------------|
+| `supplier.read` | Low | `lindle-mcp` / `lindle-orleans` |
+| `negotiate` / `investigate` | Medium | `lindle-orleans` |
+| `peer.message` | Medium | peer id from `COOP_PEERS_JSON` |
+
+## Crates
+
+| Crate | Role |
+|-------|------|
+| `coop-domain` | RBAC + TrustScore |
+| `coop-application` | Agent registry config |
+| `coop-identity` | AuthN (secret / OAuth2 / OIDC / mTLS) |
+| `coop-a2a` | Hub gateway + adapters |
+| `coop-tests` | Tests |
+
+Apache-2.0

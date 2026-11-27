@@ -133,12 +133,7 @@ impl AgentBackend for LindleMcpClient {
             if resp.get("error").is_some() {
                 bail!("MCP initialize error: {resp}");
             }
-            tracing::info!(
-                id = %self.base.cfg.id,
-                kind = ?self.base.cfg.kind,
-                url = %self.base.cfg.base_url,
-                "Mcp backend connected"
-            );
+            tracing::info!(id = %self.base.cfg.id, url = %self.base.cfg.base_url, "Mcp connected");
             Ok(())
         })
     }
