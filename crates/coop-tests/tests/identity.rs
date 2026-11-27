@@ -104,3 +104,29 @@ fn scope_serde() {
         "\"supplier.read\""
     );
 }
+
+/// Shape expected from gateway `GET /whoami` (AuthN + trust, no skill).
+#[test]
+fn whoami_introspection_payload() {
+    let dir = ApiKeyDirectory::demo();
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_static("Bearer nego-a-demo-key"),
+    );
+    let p = dir.authenticate(&headers).unwrap();
+    let proof = IdentityProof::SharedSecret;
+    let trust = p.trust_score(proof);
+    let body = serde_json::json!({
+        "agent_id": p.agent_id,
+        "tenant_id": p.tenant_id,
+        "roles": p.roles,
+        "trust": trust.as_str(),
+        "proof": proof,
+    });
+    assert_eq!(body["agent_id"], "negotiation-a");
+    assert_eq!(body["tenant_id"], "buyer-tenant");
+    assert_eq!(body["roles"], serde_json::json!(["operator"]));
+    assert_eq!(body["trust"], "medium");
+    assert_eq!(body["proof"], "shared_secret");
+}
