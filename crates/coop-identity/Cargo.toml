@@ -3,10 +3,14 @@ name = "coop-identity"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Identity infrastructure — Bearer AuthN over domain Principal"
+description = "Identity infrastructure — AuthN (shared secret / OAuth2 / OIDC / mTLS) over domain Principal"
 
 [dependencies]
 anyhow.workspace = true
 coop-domain = { path = "../coop-domain" }
 http.workspace = true
+jsonwebtoken.workspace = true
+reqwest.workspace = true
 serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true

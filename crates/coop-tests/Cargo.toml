@@ -7,9 +7,12 @@ publish = false
 description = "Coop test layer — domain / application / identity / a2a coverage"
 
 [dependencies]
+anyhow.workspace = true
 coop-application = { path = "../coop-application" }
 coop-a2a = { path = "../coop-a2a" }
 coop-domain = { path = "../coop-domain" }
 coop-identity = { path = "../coop-identity" }
 http.workspace = true
+jsonwebtoken.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

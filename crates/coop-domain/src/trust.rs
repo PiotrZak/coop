@@ -37,8 +37,23 @@ impl std::fmt::Display for TrustScore {
 pub enum IdentityProof {
     /// Shared API key / demo Bearer (weakest).
     SharedSecret,
+    /// Bearer access token validated as OAuth2 JWT.
     OAuth2,
+    /// OpenID Connect ID/access token (JWT + `openid` / id-token claims).
+    OpenIdConnect,
+    /// Verified client certificate (via TLS terminator proxy headers).
     Mtls,
+}
+
+impl IdentityProof {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IdentityProof::SharedSecret => "shared_secret",
+            IdentityProof::OAuth2 => "oauth2",
+            IdentityProof::OpenIdConnect => "openid_connect",
+            IdentityProof::Mtls => "mtls",
+        }
+    }
 }
 
 impl Scope {
@@ -46,7 +61,7 @@ impl Scope {
     pub fn min_trust(self) -> TrustScore {
         match self {
             Scope::SupplierRead => TrustScore::Low,
-            Scope::Negotiate | Scope::Investigate => TrustScore::Medium,
+            Scope::Negotiate | Scope::Investigate | Scope::PeerMessage => TrustScore::Medium,
         }
     }
 }
@@ -65,6 +80,7 @@ impl Principal {
         match proof {
             IdentityProof::SharedSecret => from_role,
             IdentityProof::OAuth2 => from_role.max(TrustScore::Medium),
+            IdentityProof::OpenIdConnect => from_role.max(TrustScore::Medium),
             IdentityProof::Mtls => TrustScore::High,
         }
     }

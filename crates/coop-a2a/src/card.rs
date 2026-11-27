@@ -27,23 +27,26 @@ pub struct SecurityRequirement {
     pub description: Option<String>,
 }
 
-impl AgentCard {
-    pub fn gateway(url: impl Into<String>, skills: Vec<Skill>) -> Self {
-        Self {
-            name: "coop-gateway".into(),
-            description:
-                "A2A edge for foreign agents → Lindle (Orleans / MCP). Identity + trust score + RBAC."
-                    .into(),
-            url: url.into(),
-            version: "0.1.0".into(),
-            skills,
-            security: vec![SecurityRequirement {
-                scheme: AuthScheme::Bearer,
-                description: Some(
-                    "Authorization: Bearer <api-key|oauth-access-token>. RBAC + identity trust floor."
-                        .into(),
-                ),
-            }],
-        }
+pub fn security_for_auth(jwt: bool, mtls: bool) -> Vec<SecurityRequirement> {
+    let mut s = vec![SecurityRequirement {
+        scheme: AuthScheme::Bearer,
+        description: Some("Bearer <api-key|jwt>; optional params.target_agent".into()),
+    }];
+    if jwt {
+        s.push(SecurityRequirement {
+            scheme: AuthScheme::OAuth2,
+            description: Some("Bearer JWT access token".into()),
+        });
+        s.push(SecurityRequirement {
+            scheme: AuthScheme::OpenIdConnect,
+            description: Some("Bearer OIDC JWT".into()),
+        });
     }
+    if mtls {
+        s.push(SecurityRequirement {
+            scheme: AuthScheme::Mtls,
+            description: Some("Proxy client-cert headers".into()),
+        });
+    }
+    s
 }

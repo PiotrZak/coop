@@ -1,35 +1,44 @@
-# Coop as A2A edge over Lindle
+# Coop as A2A auth hub
 
-**Purpose:** foreign agents talk **A2A** to Coop; Coop calls **Lindle Orleans** and/or **Lindle MCP**.  
-YCA construction tools are out of scope.
+**Purpose:** foreign agents authenticate to Coop; Coop routes to **any registered agent adapter**.  
+Lindle Orleans / MCP are adapters in the same registry as AgentA / AgentB.
 
 ```text
-Foreign A2A agent  --A2A-->  coop-gateway  --+--> Lindle /agents/*  (Orleans)
-                                             +--> Lindle /mcp         (tools/call)
+Foreign A2A agent  --A2A-->  coop-gateway  --+--> agent adapters (A2A peers)
+                                             +--> Lindle Orleans / MCP (also adapters)
 ```
 
 ## Env
 
 | Variable | Required | Role |
 |----------|----------|------|
-| `AGENTS_SERVICE_URL` | for Orleans skills | Orleans Agents base URL |
+| `AGENTS_SERVICE_URL` | for Orleans adapter | Orleans Agents base URL |
 | `AGENTS_INTERNAL_SECRET` | with URL | Bearer / `X-Lindle-Agents-Secret` |
-| `LINDLE_MCP_URL` | optional | Lindle Backend MCP URL (e.g. `http://127.0.0.1:8000/mcp`) |
-| `MCP_SERVER_SECRET` | with MCP URL | Same secret YCA uses for `/mcp` |
+| `LINDLE_MCP_URL` | optional | Lindle Backend MCP URL |
+| `MCP_SERVER_SECRET` | with MCP URL | MCP shared secret |
+| `COOP_PEERS_JSON` | optional | A2A peer adapters JSON array |
+| `COOP_OIDC_ISSUER` | optional | Enable OAuth2/OIDC JWT AuthN |
+| `COOP_OIDC_AUDIENCE` | optional | JWT audience (default `coop-gateway`) |
+| `COOP_OIDC_HS256_SECRET` | optional | HS256 secret for local JWT |
+| `COOP_OIDC_JWKS_URL` | optional | JWKS URL override |
+| `COOP_MTLS_PROXY_HEADERS` | optional | `1` to accept proxy mTLS headers |
 
 Listen: `127.0.0.1:7090` (`--addr` to override).
 
-## Skill map
+## Skill map (example adapters)
 
-| A2A skill | Backend | Min trust |
-|-----------|---------|-----------|
-| `supplier.read` | **MCP** `supplier-lookup` (if MCP up), else Orleans portfolio | Low |
-| `investigate` | Orleans `POST /agents/investigate` | Medium |
-| `negotiate` | Orleans `POST /agents/negotiate` | Medium |
+| A2A skill | Typical adapter id | Min trust |
+|-----------|--------------------|-----------|
+| `supplier.read` | `lindle-mcp` (priority) or `lindle-orleans` | Low |
+| `investigate` | `lindle-orleans` | Medium |
+| `negotiate` | `lindle-orleans` | Medium |
+| `peer.message` | any `A2aPeer` | Medium |
+
+Pass `params.target_agent` to pin an adapter (e.g. `"lindle-orleans"` or `"agent-a"`).
 
 ## Trust score
 
-After AuthN, Coop computes an identity-based [`TrustScore`](../crates/coop-domain/src/trust.rs) (`Untrusted`/`Low`/`Medium`/`High`) from role + proof strength, then enforces a per-skill floor. Attached on responses as `coop_trust`.
+After AuthN, Coop computes [`TrustScore`](../crates/coop-domain/src/trust.rs) from role + proof, then enforces a per-skill floor. Responses include `coop_trust` (`band`, `proof`, `target_agent`). See [A2A_AUTH_AND_FLOW.md](./A2A_AUTH_AND_FLOW.md).
 
 ## Observability
 

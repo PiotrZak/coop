@@ -19,6 +19,9 @@ pub enum Scope {
     #[serde(rename = "supplier.read")]
     SupplierRead,
     Investigate,
+    /// Generic hub → agent message (any registered adapter).
+    #[serde(rename = "peer.message")]
+    PeerMessage,
 }
 
 impl Scope {
@@ -27,13 +30,14 @@ impl Scope {
             Scope::Negotiate => "negotiate",
             Scope::SupplierRead => "supplier.read",
             Scope::Investigate => "investigate",
+            Scope::PeerMessage => "peer.message",
         }
     }
 
     pub fn required_level(self) -> RbacLevel {
         match self {
             Scope::SupplierRead => RbacLevel::Read,
-            Scope::Negotiate | Scope::Investigate => RbacLevel::Act,
+            Scope::Negotiate | Scope::Investigate | Scope::PeerMessage => RbacLevel::Act,
         }
     }
 
@@ -42,6 +46,7 @@ impl Scope {
             "negotiate" => Ok(Scope::Negotiate),
             "supplier.read" => Ok(Scope::SupplierRead),
             "investigate" => Ok(Scope::Investigate),
+            "peer.message" => Ok(Scope::PeerMessage),
             other => bail!("unknown skill `{other}`"),
         }
     }

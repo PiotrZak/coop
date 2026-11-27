@@ -1,32 +1,24 @@
-//! Generic agent-backend config — base type all concrete backends specialize.
-//!
-//! There is no class inheritance: factories (e.g. Lindle Orleans / Lindle MCP)
-//! fill this shared shape; runtime adapters implement a dispatch trait in `coop-a2a`.
+//! Shared config for one registered agent adapter.
 
 use serde::{Deserialize, Serialize};
 
-/// Protocol family (extensible). Product-specific factories pick a kind.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentBackendKind {
-    /// JSON HTTP agent API (Lindle Orleans is one provider).
     AgentsHttp,
-    /// MCP `tools/call` (Lindle Backend `/mcp` is one provider).
     Mcp,
+    A2aPeer,
 }
 
-/// How the shared secret is presented on the wire.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthStyle {
     Bearer,
-    /// Bearer + `X-Lindle-Agents-Secret` (Lindle Host).
     BearerAndLindleHeader,
-    /// Bearer or `X-MCP-Secret` for MCP hosts.
     McpSecret,
 }
 
-/// Generic base config for **any** agent backend.
+/// `id` is the hub `target_agent`.
 #[derive(Clone)]
 pub struct AgentBackendConfig {
     pub id: String,
@@ -37,7 +29,6 @@ pub struct AgentBackendConfig {
     pub health_path: String,
     pub default_tenant_id: String,
     pub skills: Vec<String>,
-    /// Lower = preferred when multiple backends match a skill.
     pub priority: u32,
     pub required: bool,
 }
@@ -50,11 +41,8 @@ impl std::fmt::Debug for AgentBackendConfig {
             .field("base_url", &self.base_url)
             .field("auth_secret", &"***")
             .field("auth_style", &self.auth_style)
-            .field("health_path", &self.health_path)
-            .field("default_tenant_id", &self.default_tenant_id)
             .field("skills", &self.skills)
             .field("priority", &self.priority)
-            .field("required", &self.required)
             .finish()
     }
 }

@@ -1,7 +1,4 @@
-//! Generic runtime agent backend — trait composition (not class inheritance).
-//!
-//! Concrete adapters (Lindle Orleans HTTP, Lindle MCP, …) implement [`AgentBackend`].
-//! The gateway only talks to this trait + [`BackendRegistry`].
+//! Runtime agent adapter trait + registry.
 
 use crate::models::{JsonRpcRequest, JsonRpcResponse};
 use anyhow::Result;
@@ -10,44 +7,43 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+type BoxFut<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// Runtime adapter for one [`AgentBackendConfig`].
 pub trait AgentBackend: Send + Sync {
     fn config(&self) -> &AgentBackendConfig;
-
     fn id(&self) -> &str {
         &self.config().id
     }
-
-    fn ensure_ready(&self) -> BoxFuture<'_, Result<()>>;
-
+    fn ensure_ready(&self) -> BoxFut<'_, Result<()>>;
     fn dispatch_skill<'a>(
         &'a self,
         skill: &'a str,
         req: &'a JsonRpcRequest,
-    ) -> BoxFuture<'a, Result<JsonRpcResponse>>;
+    ) -> BoxFut<'a, Result<JsonRpcResponse>>;
 }
 
-/// Connected backends ordered by priority; dispatch by skill without product match arms.
 #[derive(Clone, Default)]
-pub struct BackendRegistry {
-    backends: Vec<Arc<dyn AgentBackend>>,
+pub struct AgentRegistry {
+    agents: Vec<Arc<dyn AgentBackend>>,
 }
 
-impl BackendRegistry {
-    pub fn new(backends: Vec<Arc<dyn AgentBackend>>) -> Self {
-        let mut backends = backends;
-        backends.sort_by_key(|b| b.config().priority);
-        Self { backends }
+impl AgentRegistry {
+    pub fn new(agents: Vec<Arc<dyn AgentBackend>>) -> Self {
+        let mut agents = agents;
+        agents.sort_by_key(|b| b.config().priority);
+        Self { agents }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.backends.is_empty()
+        self.agents.is_empty()
+    }
+
+    pub fn get(&self, agent_id: &str) -> Option<Arc<dyn AgentBackend>> {
+        self.agents.iter().find(|a| a.id() == agent_id).cloned()
     }
 
     pub fn for_skill(&self, skill: &str) -> Option<Arc<dyn AgentBackend>> {
-        self.backends
+        self.agents
             .iter()
             .filter(|b| b.config().supports(skill))
             .min_by_key(|b| b.config().priority)
@@ -59,10 +55,29 @@ impl BackendRegistry {
         skill: &str,
         exclude_id: &str,
     ) -> Option<Arc<dyn AgentBackend>> {
-        self.backends
+        self.agents
             .iter()
             .filter(|b| b.config().supports(skill) && b.id() != exclude_id)
             .min_by_key(|b| b.config().priority)
             .cloned()
+    }
+
+    /// `target_agent` if set, else skill priority.
+    pub fn resolve(
+        &self,
+        target_agent: Option<&str>,
+        skill: &str,
+    ) -> Result<Arc<dyn AgentBackend>, String> {
+        if let Some(id) = target_agent {
+            let agent = self
+                .get(id)
+                .ok_or_else(|| format!("unknown target_agent `{id}`"))?;
+            if !agent.config().supports(skill) {
+                return Err(format!("agent `{id}` does not support skill `{skill}`"));
+            }
+            return Ok(agent);
+        }
+        self.for_skill(skill)
+            .ok_or_else(|| format!("no registered agent for skill `{skill}`"))
     }
 }

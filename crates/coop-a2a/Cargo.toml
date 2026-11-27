@@ -3,7 +3,7 @@ name = "coop-a2a"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Coop A2A infrastructure — HTTP/JSON-RPC gateway over Lindle"
+description = "Coop A2A presentation — auth hub over registered agent adapters"
 
 [[bin]]
 name = "coop-gateway"

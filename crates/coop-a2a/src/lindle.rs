@@ -6,7 +6,7 @@ use crate::models::{
     completed_task, Artifact, JsonRpcRequest, JsonRpcResponse, Message, NegotiateParams, Part,
     SupplierLookupParams, Task,
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use coop_application::AgentBackendConfig;
 use coop_domain::Scope;
 use serde_json::{json, Value};
@@ -46,10 +46,7 @@ impl LindleOrleansClient {
             "basedOn": ["coop-a2a", "orchestrator"],
         });
 
-        let data = self
-            .post_json("/agents/negotiate", &body)
-            .await
-            .context("Lindle negotiate")?;
+        let data = self.post_json("/agents/negotiate", &body).await.context("Lindle negotiate")?;
 
         Ok(completed_task(
             "negotiate",
@@ -144,28 +141,9 @@ impl LindleOrleansClient {
     }
 
     async fn post_json(&self, path: &str, body: &Value) -> Result<Value> {
-        let url = format!("{}{path}", self.base.cfg.base_url);
-        let resp = self
-            .base
-            .authed(self.base.http.post(&url))
-            .json(body)
-            .send()
-            .await
-            .with_context(|| format!("POST {path}"))?;
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        if !status.is_success() {
-            return Err(anyhow!("backend {path} → HTTP {status}: {text}"));
-        }
-        if text.is_empty() {
-            return Ok(json!({ "ok": true }));
-        }
-        serde_json::from_str(&text).with_context(|| format!("decode {path} body"))
+        self.base.post_json(path, body).await
     }
 }
-
-/// Alias kept for call sites / docs.
-pub type LindleAgentsClient = LindleOrleansClient;
 
 impl AgentBackend for LindleOrleansClient {
     fn config(&self) -> &AgentBackendConfig {
@@ -173,24 +151,7 @@ impl AgentBackend for LindleOrleansClient {
     }
 
     fn ensure_ready(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            let resp = self.base.health_get().await.context("backend health request")?;
-            if !resp.status().is_success() {
-                bail!(
-                    "agent backend `{}` not ready at {} (health HTTP {})",
-                    self.base.cfg.id,
-                    self.base.cfg.base_url,
-                    resp.status()
-                );
-            }
-            tracing::info!(
-                id = %self.base.cfg.id,
-                kind = ?self.base.cfg.kind,
-                url = %self.base.cfg.base_url,
-                "AgentsHttp backend connected"
-            );
-            Ok(())
-        })
+        Box::pin(async move { self.base.ensure_ready("AgentsHttp connected").await })
     }
 
     fn dispatch_skill<'a>(
@@ -212,6 +173,9 @@ impl AgentBackend for LindleOrleansClient {
                 Scope::Negotiate => self.negotiate(&message).await?,
                 Scope::SupplierRead => self.supplier_read(&message).await?,
                 Scope::Investigate => self.investigate(&message).await?,
+                Scope::PeerMessage => {
+                    bail!("AgentsHttp adapter does not handle skill `peer.message`")
+                }
             };
 
             Ok(JsonRpcResponse::ok(req.id.clone(), json!(task)))
